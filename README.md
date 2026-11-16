@@ -14,11 +14,25 @@ on the watchlist. Wrapped, staked and bridged products of other protocols,
 exchange pages and later versions of protocols that already launched are
 left out, whatever their size.
 
-Each protocol gets an implied launch value from the snapshot's own
-figures: TVL scaled by a score blending TVL size (50%, on a log scale),
-7-day TVL growth (30%) and days run with no token (20%). Each also gets a
-farm plan of six concrete steps written from its category and its real
-chains, every step with what it costs and how long it takes.
+Each protocol gets an implied launch value priced off the snapshot's own
+comparables: the 128 protocols in the snapshot whose tokens already trade
+with both a market cap and a TVL recorded. Launched tokens trade at a
+median multiple of TVL that falls with size, from about 0.57x for the
+smallest to about 0.09x for the largest, so a candidate's base value is
+its TVL times the median multiple of launched protocols in its own size
+band, each band shrunk toward the global median by its sample size. Two
+bounded tilts then apply: 7-day TVL growth (a -10% to +15% tilt) and days
+run with no token (a 0% to +10% tilt).
+
+Calibration, stated plainly: in split-half tests on the snapshot's
+launched tokens (fit on one half, price the other), this method's median
+error is near 90%, and so is every simpler method's. Launch values are
+genuinely hard to price from TVL alone. The multiples keep the magnitudes
+honest; the board is a ranking, not a quote.
+
+Each protocol also gets a farm plan of six concrete steps written from
+its category and its real chains, every step with what it costs and how
+long it takes.
 
 The dashboard is a static page with no build step and no network: the
 ranked board with sortable columns, search, category and chain filters

@@ -14,18 +14,29 @@
 // product exclusions, applied without its $50M size floor: the floor is
 // where the house started reading, not where the value stops.
 //
-// The value. Implied launch value = TVL x (1 + score / 100), where the
-// score blends three signals the snapshot itself carries:
-//   size    50%: where the protocol's TVL sits on a log scale between the
-//           smallest and largest protocol on the board. Big protocols
-//           launch big; the log keeps one giant from flattening the rest.
-//   growth  30%: the 7 day TVL change, mapped from -10% (scores 0) to
-//           +30% (scores 100). A protocol gathering TVL is gathering the
-//           users a launch rewards. No reported change counts as 0%.
-//   age     20%: days since DefiLlama began tracking it with no token,
-//           mapped over 0 to 1500 days. The longer a real protocol has
-//           run tokenless, the more overdue a launch looks. An unknown
-//           listing date scores a neutral 50.
+// The value. The snapshot holds 128 protocols whose tokens already trade
+// with both a market cap and a TVL recorded. They are the comparables:
+// what the market actually pays, per dollar of TVL, for a launched
+// protocol of a given size. The pattern is strong and monotone: small
+// protocols trade at a median of about 0.57x TVL, the largest at about
+// 0.09x. So a candidate's base value is its TVL times the median
+// market-cap-to-TVL multiple of launched protocols in its own size band,
+// each band's median shrunk toward the global median (0.21x) by its
+// sample size, so a thin band cannot shout. Two tilts then move the base,
+// both bounded: 7-day TVL growth, mapped from -10%..+30% onto a -10% to
+// +15% tilt (a protocol gathering TVL is gathering the users a launch
+// rewards; no reported change counts as 0%), and days run with no token,
+// mapped over 0 to 1500 days onto a 0% to +10% tilt (the longer a real
+// protocol has run tokenless, the more overdue a launch looks; an unknown
+// listing date earns half the age tilt).
+//
+// Calibration, stated plainly: in split-half tests on this snapshot's
+// launched tokens (fit on one half, price the other), every method tried,
+// this one included, lands a median error near 90%. Launch values are
+// genuinely hard to price from TVL alone. The board is a ranking built on
+// the best anchor the snapshot offers, not a quote: the multiples keep
+// the magnitudes honest, and the order is what the board asks you to
+// trust.
 
 export interface Protocol {
   slug: string;
@@ -72,7 +83,11 @@ export interface RadarRow {
   d: number | null;
   v: number;
   w: boolean;
-  sc: [number, number, number];
+  b: number;
+  m: number;
+  gt: number;
+  at: number;
+  sc: [number, number];
   st: [string, string, number][];
 }
 
@@ -80,6 +95,7 @@ export interface Radar {
   asOf: string;
   tracked: number;
   floor: number;
+  comps: number;
   rows: RadarRow[];
 }
 
@@ -122,18 +138,155 @@ function daysBetween(from: string, to: string): number {
 
 const clamp100 = (x: number): number => Math.min(100, Math.max(0, x));
 
-/** The three signal scores, 0 to 100 each, for one protocol. */
-export function signals(p: Protocol, minLog: number, maxLog: number, asOf: string): [number, number, number] {
-  const size = maxLog > minLog ? (100 * (Math.log(p.tvl_usd) - minLog)) / (maxLog - minLog) : 100;
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+// ------------------------------------------------------------ comparables
+
+/** TVL band edges in dollars: five bands, smallest to largest. */
+const BAND_EDGES = [10_000_000, 50_000_000, 200_000_000, 1_000_000_000];
+
+export function bandOf(tvl: number): number {
+  let band = 0;
+  while (band < BAND_EDGES.length && tvl >= BAND_EDGES[band]!) band++;
+  return band;
+}
+
+export interface Comps {
+  count: number;
+  globalMultiple: number;
+  bandMultiples: number[];
+}
+
+/** The launched tokens of the snapshot, distilled to pricing multiples. */
+export function buildComps(snapshot: Snapshot): Comps {
+  const launched = snapshot.protocols.filter(
+    (p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0,
+  );
+  const ratios = launched.map((p) => p.mcap_usd! / p.tvl_usd);
+  const globalMultiple = median(ratios);
+  const bandMultiples: number[] = [];
+  for (let band = 0; band <= BAND_EDGES.length; band++) {
+    const inBand = launched.filter((p) => bandOf(p.tvl_usd) === band).map((p) => p.mcap_usd! / p.tvl_usd);
+    if (inBand.length >= 5) {
+      const m = median(inBand);
+      const n = inBand.length;
+      bandMultiples.push((m * n + globalMultiple * 6) / (n + 6));
+    } else {
+      bandMultiples.push(globalMultiple);
+    }
+  }
+  return { count: launched.length, globalMultiple, bandMultiples };
+}
+
+/** The two signal scores, 0 to 100: 7-day growth, and days tokenless. */
+export function signals(p: Protocol, asOf: string): [number, number] {
   const growth = clamp100(((p.change_7d ?? 0) + 10) * 2.5);
   const age = p.listed_at === null ? 50 : clamp100((daysBetween(p.listed_at, asOf) / 1500) * 100);
-  return [clamp100(size), growth, age];
+  return [growth, age];
 }
 
-export function scoreOf(sc: [number, number, number]): number {
-  return 0.5 * sc[0] + 0.3 * sc[1] + 0.2 * sc[2];
+/** Price one candidate: base from the comps, then the two bounded tilts. */
+export function priceOf(
+  p: Protocol,
+  comps: Comps,
+  asOf: string,
+): { value: number; base: number; multiple: number; gt: number; at: number; sc: [number, number] } {
+  const multiple = comps.bandMultiples[bandOf(p.tvl_usd)]!;
+  const base = p.tvl_usd * multiple;
+  const sc = signals(p, asOf);
+  const gt = -10 + 0.25 * sc[0];
+  const at = 0.1 * sc[1];
+  const value = Math.round(base * (1 + gt / 100 + at / 100));
+  return { value, base: Math.round(base), multiple, gt, at, sc };
 }
 
+// ------------------------------------------------------------------ board
+
+export function buildRadar(snapshot: Snapshot): { board: Row[]; radar: Radar } {
+  const watch = new Set(snapshot.watchlist);
+  const comps = buildComps(snapshot);
+  const candidates = snapshot.protocols.filter(isCandidate);
+
+  const scored = candidates.map((p) => ({ p, price: priceOf(p, comps, snapshot.as_of) }));
+  scored.sort((a, b) => b.price.value - a.price.value || b.p.tvl_usd - a.p.tvl_usd || (a.p.slug < b.p.slug ? -1 : 1));
+
+  const board: Row[] = [];
+  const rows: RadarRow[] = [];
+  scored.forEach(({ p, price }, i) => {
+    const steps = planFor(p);
+    board.push({
+      slug: p.slug,
+      name: p.name,
+      rank: i + 1,
+      implied_value_usd: price.value,
+      farm_steps: steps.map(stepText),
+    });
+    rows.push({
+      r: i + 1,
+      s: p.slug,
+      n: p.name,
+      c: p.category ?? 'Other',
+      ch: p.chains,
+      t: p.tvl_usd,
+      g: p.change_7d,
+      d: p.listed_at === null ? null : daysBetween(p.listed_at, snapshot.as_of),
+      v: price.value,
+      w: watch.has(p.slug),
+      b: price.base,
+      m: Math.round(price.multiple * 1000) / 1000,
+      gt: Math.round(price.gt * 10) / 10,
+      at: Math.round(price.at * 10) / 10,
+      sc: [Math.round(price.sc[0]), Math.round(price.sc[1])],
+      st: steps.map((s) => [s.text, s.cost, s.mins]),
+    });
+  });
+
+  return {
+    board,
+    radar: { asOf: snapshot.as_of, tracked: snapshot.protocols.length, floor: snapshot.floor_usd, comps: comps.count, rows },
+  };
+}
+
+/** The gate's board rules, checked before anything is written. */
+export function boardIssue(board: Row[], snapshot: Snapshot): string | null {
+  if (board.length < 100 || board.length > 4000) return `board holds ${board.length} rows, outside 100 to 4000`;
+  const slugs = new Set(snapshot.protocols.map((p) => p.slug));
+  const seen = new Set<string>();
+  let prev = Number.POSITIVE_INFINITY;
+  let nonWatch = 0;
+  const watch = new Set(snapshot.watchlist);
+  for (let i = 0; i < board.length; i++) {
+    const row = board[i]!;
+    if (row.rank !== i + 1) return `row ${i}: rank is ${row.rank}, expected ${i + 1}`;
+    if (!slugs.has(row.slug)) return `row ${i}: slug ${row.slug} is not in the snapshot`;
+    if (seen.has(row.slug)) return `row ${i}: slug ${row.slug} appears twice`;
+    seen.add(row.slug);
+    if (row.name.trim() === '') return `row ${i}: empty name`;
+    if (!Number.isInteger(row.implied_value_usd) || row.implied_value_usd <= 0) return `row ${i}: bad implied value`;
+    if (row.implied_value_usd > 100_000_000_000_000) return `row ${i}: implied value over the cap`;
+    if (row.implied_value_usd > prev) return `row ${i}: implied value rises as rank ascends`;
+    prev = row.implied_value_usd;
+    if (row.farm_steps.length < 3 || row.farm_steps.length > 12) return `row ${i}: ${row.farm_steps.length} farm steps`;
+    for (const s of row.farm_steps) {
+      const t = s.trim();
+      if (t.length < 20 || t.length > 600) return `row ${i}: a farm step is ${t.length} characters`;
+    }
+    if (!watch.has(row.slug)) nonWatch++;
+  }
+  for (const slug of snapshot.watchlist) {
+    if (!seen.has(slug)) return `watchlist protocol ${slug} is missing from the board`;
+  }
+  if (nonWatch < 60) return `only ${nonWatch} non-watchlist rows, under 60`;
+  return null;
+}
+
+export function dataScript(radar: Radar): string {
+  return `window.GLEAN=${JSON.stringify(radar)};\n`;
+}
 // ------------------------------------------------------------- farm plans
 //
 // One plan per protocol, written from its category and its real chains.
@@ -277,88 +430,3 @@ export function stepText(s: Step): string {
   return `${s.text} Cost: about ${s.cost}. Time: about ${s.mins} minutes.`;
 }
 
-// ------------------------------------------------------------------ board
-
-export function buildRadar(snapshot: Snapshot): { board: Row[]; radar: Radar } {
-  const watch = new Set(snapshot.watchlist);
-  const candidates = snapshot.protocols.filter(isCandidate);
-  const logs = candidates.map((p) => Math.log(p.tvl_usd));
-  const minLog = Math.min(...logs);
-  const maxLog = Math.max(...logs);
-
-  const scored = candidates.map((p) => {
-    const sc = signals(p, minLog, maxLog, snapshot.as_of);
-    const value = Math.round(p.tvl_usd * (1 + scoreOf(sc) / 100));
-    return { p, sc, value };
-  });
-  scored.sort((a, b) => b.value - a.value || b.p.tvl_usd - a.p.tvl_usd || (a.p.slug < b.p.slug ? -1 : 1));
-
-  const board: Row[] = [];
-  const rows: RadarRow[] = [];
-  scored.forEach(({ p, sc, value }, i) => {
-    const steps = planFor(p);
-    board.push({
-      slug: p.slug,
-      name: p.name,
-      rank: i + 1,
-      implied_value_usd: value,
-      farm_steps: steps.map(stepText),
-    });
-    rows.push({
-      r: i + 1,
-      s: p.slug,
-      n: p.name,
-      c: p.category ?? 'Other',
-      ch: p.chains,
-      t: p.tvl_usd,
-      g: p.change_7d,
-      d: p.listed_at === null ? null : daysBetween(p.listed_at, snapshot.as_of),
-      v: value,
-      w: watch.has(p.slug),
-      sc: [Math.round(sc[0]), Math.round(sc[1]), Math.round(sc[2])],
-      st: steps.map((s) => [s.text, s.cost, s.mins]),
-    });
-  });
-
-  return {
-    board,
-    radar: { asOf: snapshot.as_of, tracked: snapshot.protocols.length, floor: snapshot.floor_usd, rows },
-  };
-}
-
-/** The gate's board rules, checked before anything is written. */
-export function boardIssue(board: Row[], snapshot: Snapshot): string | null {
-  if (board.length < 100 || board.length > 4000) return `board holds ${board.length} rows, outside 100 to 4000`;
-  const slugs = new Set(snapshot.protocols.map((p) => p.slug));
-  const seen = new Set<string>();
-  let prev = Number.POSITIVE_INFINITY;
-  let nonWatch = 0;
-  const watch = new Set(snapshot.watchlist);
-  for (let i = 0; i < board.length; i++) {
-    const row = board[i]!;
-    if (row.rank !== i + 1) return `row ${i}: rank is ${row.rank}, expected ${i + 1}`;
-    if (!slugs.has(row.slug)) return `row ${i}: slug ${row.slug} is not in the snapshot`;
-    if (seen.has(row.slug)) return `row ${i}: slug ${row.slug} appears twice`;
-    seen.add(row.slug);
-    if (row.name.trim() === '') return `row ${i}: empty name`;
-    if (!Number.isInteger(row.implied_value_usd) || row.implied_value_usd <= 0) return `row ${i}: bad implied value`;
-    if (row.implied_value_usd > 100_000_000_000_000) return `row ${i}: implied value over the cap`;
-    if (row.implied_value_usd > prev) return `row ${i}: implied value rises as rank ascends`;
-    prev = row.implied_value_usd;
-    if (row.farm_steps.length < 3 || row.farm_steps.length > 12) return `row ${i}: ${row.farm_steps.length} farm steps`;
-    for (const s of row.farm_steps) {
-      const t = s.trim();
-      if (t.length < 20 || t.length > 600) return `row ${i}: a farm step is ${t.length} characters`;
-    }
-    if (!watch.has(row.slug)) nonWatch++;
-  }
-  for (const slug of snapshot.watchlist) {
-    if (!seen.has(slug)) return `watchlist protocol ${slug} is missing from the board`;
-  }
-  if (nonWatch < 60) return `only ${nonWatch} non-watchlist rows, under 60`;
-  return null;
-}
-
-export function dataScript(radar: Radar): string {
-  return `window.GLEAN=${JSON.stringify(radar)};\n`;
-}

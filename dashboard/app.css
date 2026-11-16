@@ -176,6 +176,10 @@ tr.top .share i { background: var(--gold); }
 .d-value .lbl { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mute); margin-bottom: 4px; }
 .d-value .fig { font-size: 40px; font-weight: 700; color: var(--gold); line-height: 1.05; }
 .d-value .of { color: var(--mute); font-size: 13px; }
+.case-line { color: var(--mute); font-size: 13px; line-height: 1.55; margin: 16px 0 0; }
+.case-line b { color: var(--ink); font-weight: 600; }
+.why .base-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; font-size: 13px; }
+.why .base-row .bv { margin-left: auto; font-size: 15px; font-weight: 600; }
 .grid { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; }
 .grid .cell { padding: 12px 12px 12px 0; border-top: 1px solid var(--line); }
 .grid .cell:nth-child(even) { border-left: 1px solid var(--line); padding-left: 12px; }

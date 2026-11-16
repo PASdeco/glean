@@ -219,6 +219,15 @@ function closeDetail() {
 $('scrim').addEventListener('click', closeDetail);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDetail(); });
 
+function caseFor(r) {
+  if (r.g !== null && r.g >= 15) return `TVL is compounding at +${r.g.toFixed(1)}% a week. Protocols growing this fast rarely stay tokenless for long, and early users are already here.`;
+  if (r.d !== null && r.d >= 1200) return `Tokenless for ${r.d} days with ${money(r.t)} still in the protocol. Very few real protocols run this long without launching; the wait itself is the signal.`;
+  if (r.r <= 10) return `One of the largest pre-token protocols in the snapshot at ${money(r.t)} of TVL. Launches at this size are events, and its users are the obvious recipients.`;
+  if (r.gt + r.at >= 14) return `Both tilts point the same way: the protocol is growing, and it has been tokenless long enough for a launch to be overdue.`;
+  if (r.g !== null && r.g > 0) return `Still growing, +${r.g.toFixed(1)}% this week, with ${money(r.t)} in TVL and no token yet. A steady candidate rather than a spike.`;
+  return `A mid-board candidate: ${money(r.t)} in TVL, no token yet, priced where launched protocols of its size actually trade.`;
+}
+
 function fillDetail(r) {
   const totalCost = r.st.reduce((n, s) => n + (parseInt(s[1].replace(/[^0-9]/g, ''), 10) || 0), 0);
   const totalMins = r.st.reduce((n, s) => n + s[2], 0);
@@ -236,6 +245,7 @@ function fillDetail(r) {
       <div><span class="lbl">Implied launch value</span><span class="fig">${money(r.v)}</span></div>
       <span class="of">Rank ${r.r} of ${rows.length}</span>
     </div>
+    <p class="case-line"><b>The case.</b> ${caseFor(r)}</p>
     <div class="grid">
       <div class="cell"><div class="k">TVL</div><div class="v fig">${money(r.t)}</div></div>
       <div class="cell"><div class="k">7-day change</div><div class="v fig">${pct(r.g)}</div></div>
@@ -246,9 +256,10 @@ function fillDetail(r) {
     </div>
     <h3>Why this value</h3>
     <div class="why">
-      ${[['TVL size', 50, r.sc[0]], ['7-day growth', 30, r.sc[1]], ['Days tokenless', 20, r.sc[2]]].map(([l, w, s]) => `
-      <div class="wrow"><span class="wlbl">${l}, ${w}%</span><span class="track"><span class="fill" style="width:${s}%"></span></span><span class="wscore fig">${s}</span></div>`).join('')}
-      <p class="formula">Value = TVL x (1 + weighted score). The score blends the three signals above at the weights shown.</p>
+      <div class="base-row"><span>Comps base: TVL x ${r.m}, the median multiple of launched tokens in its size band</span><span class="bv fig">${money(r.b)}</span></div>
+      ${[['7-day growth', r.sc[0], r.gt], ['Days tokenless', r.sc[1], r.at]].map(([l, s, t]) => `
+      <div class="wrow"><span class="wlbl">${l}</span><span class="track"><span class="fill" style="width:${s}%"></span></span><span class="wscore fig">${t > 0 ? '+' : ''}${t}%</span></div>`).join('')}
+      <p class="formula">Value = TVL x size-band multiple x (1 + growth tilt + age tilt). Multiples come from the ${G.comps} launched tokens in this snapshot that record both a market cap and a TVL.</p>
     </div>
     <h3>Farm plan</h3>
     <ol class="plan">
