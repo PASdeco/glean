@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glean: tokenless protocols, ranked</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <svg class="glyph" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5" opacity="0.45"/>
+      <circle cx="14" cy="14" r="7" stroke="currentColor" stroke-width="1.5" opacity="0.7"/>
+      <g class="arm"><path d="M14 14 L14 2 A12 12 0 0 1 24.4 20 Z" fill="currentColor" opacity="0.28"/><path d="M14 14 L14 2" stroke="currentColor" stroke-width="2"/></g>
+      <circle cx="14" cy="14" r="2" fill="currentColor"/>
+    </svg>
+    <span class="wordmark">Glean</span>
+    <span class="tagline">Tokenless protocols, ranked.</span>
+    <div class="topright">
+      <span class="counts fig" id="counts"></span>
+      <div class="switch" role="group" aria-label="Theme">
+        <button id="th-dark" aria-pressed="true" aria-label="Dark theme" title="Dark theme">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true"><path d="M15.5 12.2A7.5 7.5 0 1 1 5.8 2.5a6 6 0 0 0 9.7 9.7z"/></svg>
+        </button>
+        <button id="th-light" aria-pressed="false" aria-label="Light theme" title="Light theme">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="3.2" fill="currentColor" stroke="none"/><path d="M9 1v2.4M9 14.6V17M1 9h2.4M14.6 9H17M3.2 3.2l1.7 1.7M13.1 13.1l1.7 1.7M14.8 3.2l-1.7 1.7M4.9 13.1l-1.7 1.7"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <section class="strip">
+    <p>Implied value scales current TVL by three signals: TVL size (50%), 7-day TVL growth (30%) and days with no token (20%). Data: DefiLlama snapshot.</p>
+    <div class="weights">
+      <span class="chip">Size 50%</span><span class="chip">Growth 30%</span><span class="chip">Tokenless age 20%</span>
+    </div>
+  </section>
+
+  <section class="leaders" id="leaders" aria-label="Top three"></section>
+
+  <section class="filters" aria-label="Filters">
+    <input type="search" id="f-search" placeholder="Search protocols" aria-label="Search protocols">
+    <select id="f-cat" aria-label="Category"></select>
+    <select id="f-chain" aria-label="Chain"></select>
+    <button class="toggle" id="f-watch" aria-pressed="false">★ Watchlist only</button>
+    <span class="result-count fig" id="count" aria-live="polite"></span>
+  </section>
+  <div class="active-filters" id="active-filters"></div>
+
+  <table id="board">
+    <colgroup>
+      <col style="width:72px"><col style="width:280px"><col style="width:150px"><col style="width:200px">
+      <col style="width:150px"><col style="width:110px"><col style="width:170px"><col style="width:168px"><col style="width:60px">
+    </colgroup>
+    <thead><tr id="head-row"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty" hidden>
+    <svg class="big-glyph" width="96" height="96" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1" opacity="0.45"/>
+      <circle cx="14" cy="14" r="7" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+      <path d="M14 14 L14 2" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="14" cy="14" r="2" fill="currentColor"/>
+    </svg>
+    <h2>No signals match</h2>
+    <p>Try removing a filter.</p>
+    <button id="empty-clear">Clear all</button>
+  </div>
+  <div class="end-line" id="end-line" hidden>End of results</div>
+
+  <footer class="note">Every protocol on this board records no token yet. Implied value is a model, not a promise: TVL today, scaled by growth and by how long the protocol has run without launching. Farm plans are starting points for your own research.</footer>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="detail" id="detail" aria-label="Protocol detail"></aside>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
