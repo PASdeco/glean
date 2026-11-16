@@ -51,6 +51,9 @@ header.top { height: 64px; display: flex; align-items: center; gap: 12px; border
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 16px;
 }
 .strip p { margin: 0; font-size: 13px; line-height: 1.5; }
+.strip-main { display: flex; flex-direction: column; gap: 2px; }
+.strip .cal { color: var(--mute); font-size: 12px; }
+.chip.vfarm { border-color: var(--gold); color: var(--gold); background: var(--wash); }
 .strip .weights { margin-left: auto; display: flex; gap: 8px; flex: none; }
 
 /* chips */

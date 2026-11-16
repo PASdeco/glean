@@ -30,13 +30,17 @@
 // protocol has run tokenless, the more overdue a launch looks; an unknown
 // listing date earns half the age tilt).
 //
-// Calibration, stated plainly: in split-half tests on this snapshot's
-// launched tokens (fit on one half, price the other), every method tried,
-// this one included, lands a median error near 90%. Launch values are
-// genuinely hard to price from TVL alone. The board is a ranking built on
-// the best anchor the snapshot offers, not a quote: the multiples keep
-// the magnitudes honest, and the order is what the board asks you to
-// trust.
+// Calibration, stated plainly: the program blind-tests its own multiples
+// on every run (fit on one half of the launched tokens, price the other,
+// then swap). On this snapshot the base multiple's median error is 96%
+// and one token in five is priced within a factor of two of its real
+// market cap. Launch values are genuinely hard to price from TVL alone.
+// The board is a ranking built on the best anchor the snapshot offers,
+// not a quote: the multiples keep the magnitudes honest, and the order
+// is what the board asks you to trust. The dashboard prints these
+// figures on its face, and the farm plans are netted against one stated
+// assumption (see netting below), so every plan carries a verdict:
+// FARM, THIN or SKIP.
 
 export interface Protocol {
   slug: string;
@@ -85,8 +89,11 @@ export interface RadarRow {
   w: boolean;
   b: number;
   m: number;
+  bn: number;
   gt: number;
   at: number;
+  ex: number;
+  vd: string;
   sc: [number, number];
   st: [string, string, number][];
 }
@@ -96,6 +103,7 @@ export interface Radar {
   tracked: number;
   floor: number;
   comps: number;
+  cal: { err: number; hit: number };
   rows: RadarRow[];
 }
 
@@ -159,18 +167,18 @@ export interface Comps {
   count: number;
   globalMultiple: number;
   bandMultiples: number[];
+  bandCounts: number[];
 }
 
 /** The launched tokens of the snapshot, distilled to pricing multiples. */
-export function buildComps(snapshot: Snapshot): Comps {
-  const launched = snapshot.protocols.filter(
-    (p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0,
-  );
+export function buildCompsFrom(launched: Protocol[]): Comps {
   const ratios = launched.map((p) => p.mcap_usd! / p.tvl_usd);
   const globalMultiple = median(ratios);
   const bandMultiples: number[] = [];
+  const bandCounts: number[] = [];
   for (let band = 0; band <= BAND_EDGES.length; band++) {
     const inBand = launched.filter((p) => bandOf(p.tvl_usd) === band).map((p) => p.mcap_usd! / p.tvl_usd);
+    bandCounts.push(inBand.length);
     if (inBand.length >= 5) {
       const m = median(inBand);
       const n = inBand.length;
@@ -179,7 +187,46 @@ export function buildComps(snapshot: Snapshot): Comps {
       bandMultiples.push(globalMultiple);
     }
   }
-  return { count: launched.length, globalMultiple, bandMultiples };
+  return { count: launched.length, globalMultiple, bandMultiples, bandCounts };
+}
+
+export function launchedTokens(snapshot: Snapshot): Protocol[] {
+  return snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
+}
+
+export function buildComps(snapshot: Snapshot): Comps {
+  return buildCompsFrom(launchedTokens(snapshot));
+}
+
+/** A stable split of the launched tokens into two halves, by slug. */
+function slugParity(slug: string): number {
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) >>> 0;
+  return h % 2;
+}
+
+/**
+ * The blind test: fit the multiples on one half of the launched tokens,
+ * price the other half with them, then swap. Pooled over both directions
+ * it reports the median absolute error of the base multiple alone, and
+ * the share of tokens priced within a factor of two of their real
+ * market cap. Deterministic: the split is a hash of the slug.
+ */
+export function blindTest(snapshot: Snapshot): { err: number; hit: number } {
+  const launched = launchedTokens(snapshot);
+  const halves: [Protocol[], Protocol[]] = [[], []];
+  for (const p of launched) halves[slugParity(p.slug)]!.push(p);
+  const errors: number[] = [];
+  let within = 0;
+  for (const [train, test] of [halves, [halves[1]!, halves[0]!]] as [Protocol[], Protocol[]][]) {
+    const comps = buildCompsFrom(train);
+    for (const p of test) {
+      const predicted = p.tvl_usd * comps.bandMultiples[bandOf(p.tvl_usd)]!;
+      errors.push(Math.abs(predicted - p.mcap_usd!) / p.mcap_usd!);
+      if (Math.abs(Math.log2(predicted / p.mcap_usd!)) <= 1) within++;
+    }
+  }
+  return { err: Math.round(median(errors) * 100), hit: Math.round((within / errors.length) * 100) };
 }
 
 /** The two signal scores, 0 to 100: 7-day growth, and days tokenless. */
@@ -206,6 +253,39 @@ export function priceOf(
 
 // ------------------------------------------------------------------ board
 
+/**
+ * The netting. Every plan is priced against one stated assumption: a
+ * launch that sets aside 1% of supply for early users, split across
+ * 20,000 qualifying wallets. The expected share of one footprint is the
+ * implied value divided by 2,000,000. Against the plan's all-in gas
+ * cost: at least twice the cost is a FARM, at least half is THIN, and
+ * below that the numbers say SKIP. The assumption is printed wherever
+ * the verdict is, so a reader can disagree with it and re-net by hand.
+ */
+export function netting(value: number, cost: number): { ex: number; vd: string } {
+  const ex = Math.round(value / 2_000_000);
+  const c = Math.max(cost, 1);
+  const vd = ex >= 2 * c ? 'FARM' : ex >= 0.5 * c ? 'THIN' : 'SKIP';
+  return { ex, vd };
+}
+
+function planCost(steps: Step[]): number {
+  return steps.reduce((n, s) => n + (parseInt(s.cost.replace(/[^0-9]/g, ''), 10) || 0), 0);
+}
+
+function netStep(value: number, steps: Step[]): string {
+  const cost = planCost(steps);
+  const mins = steps.reduce((n, s) => n + s.mins, 0);
+  const { ex, vd } = netting(value, cost);
+  const reason =
+    vd === 'FARM'
+      ? 'the expected share covers the cost several times over'
+      : vd === 'THIN'
+        ? 'the expected share roughly covers the cost, so farm it only if you would use the protocol anyway'
+        : 'on these assumptions the expected share does not cover the gas, so the numbers say skip it';
+  return `Net: about $${cost} of gas and ${mins} minutes all in. If the launch sets aside 1% of supply for early users across 20,000 qualifying wallets, a footprint like this one is priced at about $${ex} at the board's implied value. Verdict: ${vd}: ${reason}.`;
+}
+
 export function buildRadar(snapshot: Snapshot): { board: Row[]; radar: Radar } {
   const watch = new Set(snapshot.watchlist);
   const comps = buildComps(snapshot);
@@ -218,12 +298,13 @@ export function buildRadar(snapshot: Snapshot): { board: Row[]; radar: Radar } {
   const rows: RadarRow[] = [];
   scored.forEach(({ p, price }, i) => {
     const steps = planFor(p);
+    const { ex, vd } = netting(price.value, planCost(steps));
     board.push({
       slug: p.slug,
       name: p.name,
       rank: i + 1,
       implied_value_usd: price.value,
-      farm_steps: steps.map(stepText),
+      farm_steps: [...steps.map(stepText), netStep(price.value, steps)],
     });
     rows.push({
       r: i + 1,
@@ -238,8 +319,11 @@ export function buildRadar(snapshot: Snapshot): { board: Row[]; radar: Radar } {
       w: watch.has(p.slug),
       b: price.base,
       m: Math.round(price.multiple * 1000) / 1000,
+      bn: comps.bandCounts[bandOf(p.tvl_usd)]!,
       gt: Math.round(price.gt * 10) / 10,
       at: Math.round(price.at * 10) / 10,
+      ex,
+      vd,
       sc: [Math.round(price.sc[0]), Math.round(price.sc[1])],
       st: steps.map((s) => [s.text, s.cost, s.mins]),
     });
@@ -247,7 +331,14 @@ export function buildRadar(snapshot: Snapshot): { board: Row[]; radar: Radar } {
 
   return {
     board,
-    radar: { asOf: snapshot.as_of, tracked: snapshot.protocols.length, floor: snapshot.floor_usd, comps: comps.count, rows },
+    radar: {
+      asOf: snapshot.as_of,
+      tracked: snapshot.protocols.length,
+      floor: snapshot.floor_usd,
+      comps: comps.count,
+      cal: blindTest(snapshot),
+      rows,
+    },
   };
 }
 

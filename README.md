@@ -24,15 +24,21 @@ band, each band shrunk toward the global median by its sample size. Two
 bounded tilts then apply: 7-day TVL growth (a -10% to +15% tilt) and days
 run with no token (a 0% to +10% tilt).
 
-Calibration, stated plainly: in split-half tests on the snapshot's
-launched tokens (fit on one half, price the other), this method's median
-error is near 90%, and so is every simpler method's. Launch values are
-genuinely hard to price from TVL alone. The multiples keep the magnitudes
-honest; the board is a ranking, not a quote.
+Calibration, stated plainly: the program blind-tests its own multiples
+on every run, fitting on one half of the launched tokens and pricing the
+other, then swapping. On this snapshot the base multiple's median error
+is 96%, and one launched token in five is priced within a factor of two
+of its real market cap. Launch values are genuinely hard to price from
+TVL alone. The multiples keep the magnitudes honest; the board is a
+ranking, not a quote, and the dashboard prints the calibration figures
+on its face.
 
 Each protocol also gets a farm plan of six concrete steps written from
 its category and its real chains, every step with what it costs and how
-long it takes.
+long it takes, and a seventh line that nets the plan: the all-in cost
+against the expected share of one stated assumption (a launch setting
+aside 1% of supply for early users across 20,000 qualifying wallets),
+with a verdict of FARM, THIN or SKIP.
 
 The dashboard is a static page with no build step and no network: the
 ranked board with sortable columns, search, category and chain filters

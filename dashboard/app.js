@@ -29,7 +29,7 @@ function setTheme(t) {
 }
 const shotMode = new URLSearchParams(location.search).get('shot');
 const savedTheme = store.get('glean-theme', null);
-setTheme(shotMode ? 'dark' : savedTheme ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+setTheme(shotMode === 'light' ? 'light' : shotMode ? 'dark' : savedTheme ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
 $('th-dark').addEventListener('click', () => setTheme('dark'));
 $('th-light').addEventListener('click', () => setTheme('light'));
 
@@ -237,7 +237,7 @@ function fillDetail(r) {
     <div class="d-head">
       <span class="badge">${r.r}</span>
       <div><h2>${esc(r.n)}</h2>
-        <div class="sub">${chip(r.c)}${r.ch.map(chip).join('')}${r.w ? chip('On the watchlist') : ''}</div>
+        <div class="sub">${chip(r.c)}${r.ch.map(chip).join('')}${r.w ? chip('On the watchlist') : ''}<span class="chip${r.vd === 'FARM' ? ' vfarm' : ''}">Netted: ${r.vd.toLowerCase()}</span></div>
       </div>
       <button class="close-x" id="d-close" aria-label="Close">✕</button>
     </div>
@@ -256,7 +256,7 @@ function fillDetail(r) {
     </div>
     <h3>Why this value</h3>
     <div class="why">
-      <div class="base-row"><span>Comps base: TVL x ${r.m}, the median multiple of launched tokens in its size band</span><span class="bv fig">${money(r.b)}</span></div>
+      <div class="base-row"><span>Comps base: TVL x ${r.m}, the median multiple of the ${r.bn} launched tokens in its size band</span><span class="bv fig">${money(r.b)}</span></div>
       ${[['7-day growth', r.sc[0], r.gt], ['Days tokenless', r.sc[1], r.at]].map(([l, s, t]) => `
       <div class="wrow"><span class="wlbl">${l}</span><span class="track"><span class="fill" style="width:${s}%"></span></span><span class="wscore fig">${t > 0 ? '+' : ''}${t}%</span></div>`).join('')}
       <p class="formula">Value = TVL x size-band multiple x (1 + growth tilt + age tilt). Multiples come from the ${G.comps} launched tokens in this snapshot that record both a market cap and a TVL.</p>
@@ -265,7 +265,7 @@ function fillDetail(r) {
     <ol class="plan">
       ${r.st.map((s, i) => `<li><span class="num">${i + 1}</span><div><div class="stext">${esc(s[0])}</div><div class="chips">${chip(s[1] === '$0' ? 'Free' : `${s[1]}`)}${chip(`${s[2]} min`)}</div></div></li>`).join('')}
     </ol>
-    <p class="plan-total">Total cost ${money(totalCost).replace('.00', '')}, ${timeText}, plus the deposits themselves, which stay yours.</p>
+    <p class="plan-total">Net: expected about ${money(r.ex)} against ${money(totalCost)} of cost and ${timeText}, rated ${r.vd}. Assumes a launch sets aside 1% of supply for early users across 20,000 qualifying wallets. The deposits themselves stay yours.</p>
     <div class="d-foot"><button class="add-btn${on ? ' on' : ''}" id="d-add">${on ? 'On your watchlist' : 'Add to watchlist'}</button></div>`;
   $('d-close').addEventListener('click', closeDetail);
   $('d-add').addEventListener('click', () => toggleStar(r.s));
@@ -279,6 +279,7 @@ function fillSelect(el, values, allLabel) {
 fillSelect($('f-cat'), [...new Set(rows.map((r) => r.c))].sort(), 'All categories');
 fillSelect($('f-chain'), [...new Set(rows.flatMap((r) => r.ch))].sort(), 'All chains');
 $('counts').textContent = `${G.tracked} tracked, ${rows.length} ranked`;
+$('cal-line').textContent = `Blind test: fitted on one half of the ${G.comps} launched tokens in this snapshot and priced on the other, the base multiple's median error is ${G.cal.err}%, with ${G.cal.hit}% priced within 2x of their real market cap. A ranking, not a quote.`;
 $('f-search').addEventListener('input', (e) => { state.q = e.target.value.trim().toLowerCase(); render(); });
 $('f-cat').addEventListener('change', (e) => { state.cat = e.target.value; render(); });
 $('f-chain').addEventListener('change', (e) => { state.chain = e.target.value; render(); });
@@ -290,7 +291,9 @@ render();
 
 // Screenshot staging: ?shot=detail opens the leader, ?shot=filtered sets a
 // category and a chain, so the three captures are stable and real.
-if (shotMode === 'detail') {
+if (shotMode === 'light') {
+  setTimeout(() => { window.__gleanReady = true; }, 400);
+} else if (shotMode === 'detail') {
   openDetail(rows[0].s);
   setTimeout(() => { window.__gleanReady = true; }, 900);
 } else if (shotMode === 'filtered') {
